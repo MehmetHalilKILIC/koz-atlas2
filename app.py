@@ -527,20 +527,24 @@ with tab3:
             }
 
             if "3B Termal FRP Küp" in view_mode:
-                fig_3d = px.scatter_3d(
-                    map_df,
-                    x="longitude",
-                    y="latitude",
-                    z="FRP_MW",
-                    color="Katman",
-                    size="FRP_MW",
-                    size_max=18,
-                    color_discrete_map=color_map,
-                    hover_name="Katman",
-                    hover_data={"FRP_MW": ":.1f", "Bilgi": True, "latitude": ":.4f", "longitude": ":.4f"},
-                    height=520
-                )
+                fig_3d = go.Figure()
+                for katman_name, grp in map_df.groupby("Katman"):
+                    fig_3d.add_trace(go.Scatter3d(
+                        x=grp["longitude"],
+                        y=grp["latitude"],
+                        z=grp["FRP_MW"],
+                        mode="markers",
+                        name=katman_name,
+                        marker=dict(
+                            size=np.clip(np.sqrt(grp["FRP_MW"]) * 1.8, 4, 16),
+                            color=color_map.get(katman_name, "#f97316"),
+                            opacity=0.88
+                        ),
+                        text=grp["Bilgi"] + " | FRP: " + grp["FRP_MW"].round(1).astype(str) + " MW",
+                        hoverinfo="text+name"
+                    ))
                 fig_3d.update_layout(
+                    height=520,
                     margin=dict(l=0, r=0, t=10, b=0),
                     paper_bgcolor="#070b14",
                     font=dict(color="#f8fafc"),
@@ -555,71 +559,73 @@ with tab3:
                     legend=dict(orientation="h", yanchor="bottom", y=0.01, xanchor="left", x=0.01, bgcolor="rgba(7,11,20,0.85)")
                 )
                 st.plotly_chart(fig_3d, use_container_width=True)
+
             else:
+                fig_map = go.Figure()
+
                 if "Isı Yoğunluk" in view_mode:
-                    fig_map = px.density_mapbox(
-                        map_df,
-                        lat="latitude",
-                        lon="longitude",
-                        z="FRP_MW",
+                    fig_map.add_trace(go.Densitymapbox(
+                        lat=map_df["latitude"],
+                        lon=map_df["longitude"],
+                        z=map_df["FRP_MW"],
                         radius=20,
-                        center={"lat": c_lat, "lon": c_lon},
-                        zoom=7.4,
-                        color_continuous_scale="Hot",
-                        hover_name="Katman",
-                        hover_data={"FRP_MW": ":.1f", "Bilgi": True},
-                        height=520
-                    )
+                        colorscale="Hot",
+                        name="FRP Termal Yoğunluk",
+                        hoverinfo="z+lat+lon"
+                    ))
                 else:
-                    fig_map = px.scatter_mapbox(
-                        map_df,
-                        lat="latitude",
-                        lon="longitude",
-                        color="Katman",
-                        size="FRP_MW",
-                        size_max=18,
-                        center={"lat": c_lat, "lon": c_lon},
-                        zoom=7.4,
-                        color_discrete_map=color_map,
-                        hover_name="Katman",
-                        hover_data={"FRP_MW": ":.1f", "Bilgi": True, "latitude": ":.4f", "longitude": ":.4f"},
-                        height=520
-                    )
+                    for katman_name, grp in map_df.groupby("Katman"):
+                        fig_map.add_trace(go.Scattermapbox(
+                            lat=grp["latitude"],
+                            lon=grp["longitude"],
+                            mode="markers",
+                            name=katman_name,
+                            marker=dict(
+                                size=np.clip(np.sqrt(grp["FRP_MW"]) * 2.2, 6, 20),
+                                color=color_map.get(katman_name, "#f97316"),
+                                opacity=0.88
+                            ),
+                            text=grp["Katman"] + "<br>" + grp["Bilgi"] + "<br>FRP: " + grp["FRP_MW"].round(1).astype(str) + " MW",
+                            hoverinfo="text"
+                        ))
+
+                mapbox_cfg = dict(
+                    center=dict(lat=c_lat, lon=c_lon),
+                    zoom=7.4
+                )
 
                 if "Uydu Görüntüsü" in map_theme:
-                    fig_map.update_layout(
-                        mapbox_style="white-bg",
-                        mapbox_layers=[
-                            {
-                                "below": "traces",
-                                "sourcetype": "raster",
-                                "sourceattribution": "Esri World Imagery",
-                                "source": ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"]
-                            },
-                            {
-                                "below": "traces",
-                                "sourcetype": "raster",
-                                "sourceattribution": "Esri Hybrid Labels",
-                                "source": ["https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"]
-                            }
-                        ]
-                    )
-                elif "Arazi & Topografya" in map_theme:
-                    fig_map.update_layout(
-                        mapbox_style="white-bg",
-                        mapbox_layers=[{
+                    mapbox_cfg["style"] = "white-bg"
+                    mapbox_cfg["layers"] = [
+                        {
                             "below": "traces",
                             "sourcetype": "raster",
-                            "sourceattribution": "Esri World Topo",
-                            "source": ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}"]
-                        }]
-                    )
+                            "sourceattribution": "Esri World Imagery",
+                            "source": ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"]
+                        },
+                        {
+                            "below": "traces",
+                            "sourcetype": "raster",
+                            "sourceattribution": "Esri Hybrid Labels",
+                            "source": ["https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"]
+                        }
+                    ]
+                elif "Arazi & Topografya" in map_theme:
+                    mapbox_cfg["style"] = "white-bg"
+                    mapbox_cfg["layers"] = [{
+                        "below": "traces",
+                        "sourcetype": "raster",
+                        "sourceattribution": "Esri World Topo",
+                        "source": ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}"]
+                    }]
                 elif "Karanlık" in map_theme:
-                    fig_map.update_layout(mapbox_style="carto-darkmatter")
+                    mapbox_cfg["style"] = "carto-darkmatter"
                 else:
-                    fig_map.update_layout(mapbox_style="open-street-map")
+                    mapbox_cfg["style"] = "open-street-map"
 
                 fig_map.update_layout(
+                    mapbox=mapbox_cfg,
+                    height=520,
                     margin={"r": 0, "t": 0, "l": 0, "b": 0},
                     paper_bgcolor="#070b14",
                     font=dict(color="#f8fafc"),
@@ -648,7 +654,6 @@ with tab3:
         </div>
         """, unsafe_allow_html=True)
         st.json({"Eşleştirme_Özeti": summary, "Kalibrasyon_Test_Sonucu": cal_metrics})
-
 with tab4:
     col_sites, col_bounds = st.columns([1.35, 1])
     with col_sites:
