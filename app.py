@@ -221,17 +221,69 @@ modis_df, viirs_df = pd.DataFrame(), pd.DataFrame()
 status_banner = ""
 
 if data_mode == "NASA Arşiv CSV Yükle (SP - Bilimsel Analiz)":
-    c1, c2 = st.columns(2)
-    m_file = c1.file_uploader("🛰️ MODIS Standart Arşiv CSV (MCD14ML - SP)", type=["csv"])
-    v_file = c2.file_uploader("🛰️ VIIRS Standart Arşiv CSV (VNP14IMG / VJ114IMG - SP)", type=["csv"])
-    if m_file and v_file:
-        with st.spinner("⚡ CSV dosyaları okunuyor ve önbelleğe alınıyor..."):
-            modis_df = cached_parse_csv(m_file.getvalue(), "MODIS_SP", filter_aoi)
-            viirs_df = cached_parse_csv(v_file.getvalue(), "VIIRS_SP", filter_aoi)
-        status_banner = f"✅ Bilimsel Standart Ürün (SP) Yüklendi — Sol Dosya Yılları: {sorted(modis_df['year'].dropna().unique().tolist())} | Sağ Dosya Yılları: {sorted(viirs_df['year'].dropna().unique().tolist())}"
+    import os, glob
+
+    # 1. Önce data/ klasöründe hazır CSV var mı kontrol et (Varsa hiç sormadan direkt açar)
+    local_csvs = glob.glob("data/*.csv") + glob.glob("*.csv")
+    auto_modis = [f for f in local_csvs if "modis" in os.path.basename(f).lower() or "mcd" in os.path.basename(f).lower()]
+    auto_viirs = [f for f in local_csvs if "viirs" in os.path.basename(f).lower() or "vnp" in os.path.basename(f).lower() or "vj1" in os.path.basename(f).lower()]
+
+    if auto_modis and auto_viirs and "sp_loaded" not in st.session_state:
+        with open(auto_modis[0], "rb") as fm, open(auto_viirs[0], "rb") as fv:
+            st.session_state["modis_sp"] = cached_parse_csv(fm.read(), "MODIS_SP", filter_aoi)
+            st.session_state["viirs_sp"] = cached_parse_csv(fv.read(), "VIIRS_SP", filter_aoi)
+            st.session_state["sp_loaded"] = True
+
+    # 2. Eğer daha önce yüklendiyse kutuları gizle, direkt hafızadan getir
+    if st.session_state.get("sp_loaded"):
+        modis_df = st.session_state["modis_sp"]
+        viirs_df = st.session_state["viirs_sp"]
+        col_ stat, col_rst = st.columns([5, 1])
+        status_banner = f"✅ Bilimsel Standart Ürün (SP) Aktif — MODIS Yılları: {sorted(modis_df['year'].dropna().unique().tolist())} | VIIRS Yılları: {sorted(viirs_df['year'].dropna().unique().tolist())}"
+        if col_rst.button("🔄 Dosya Değiştir", use_container_width=True):
+            st.session_state.pop("sp_loaded", None)
+            st.rerun()
     else:
-        st.info("Lütfen AYNI YILA AİT MODIS ve VIIRS Standart Arşiv (SP) CSV dosyalarını yükleyin veya sol menüden Demo modunu seçin.")
-        st.stop()
+        # 3. Tek kutudan ikisini birden (veya tek birleşik CSV'yi) tek seferde yükleme
+        uploaded_files = st.file_uploader(
+            "🛰️ MODIS ve VIIRS Standart Arşiv CSV Dosyalarını Tek Seferde Seçin (İkisini birden sürükleyip bırakabilirsiniz)",
+            type=["csv"],
+            accept_multiple_files=True
+        )
+        if uploaded_files:
+            with st.spinner("⚡ CSV verileri tek seferde işleniyor ve hafızaya alınıyor..."):
+                m_list, v_list = [], []
+                for uf in uploaded_files:
+                    raw_bytes = uf.getvalue()
+                    fname = uf.name.lower()
+                    if "viirs" in fname or "vnp" in fname or "vj" in fname:
+                        v_list.append(cached_parse_csv(raw_bytes, "VIIRS_SP", filter_aoi))
+                    elif "modis" in fname or "mcd" in fname:
+                        m_list.append(cached_parse_csv(raw_bytes, "MODIS_SP", filter_aoi))
+                    else:
+                        # Dosya adında yazmıyorsa içindeki satellite/instrument sütunundan otomatik ayır
+                        tmp_df = pd.read_csv(io.BytesIO(raw_bytes), low_memory=False)
+                        sat_str = tmp_df.get("satellite", pd.Series(dtype=str)).astype(str).str.upper()
+                        v_mask = sat_str.str.contains("N|VJ|SNPP|VIIRS")
+                        if v_mask.any() and (~v_mask).any():
+                            m_list.append(parse_and_filter_aoi(tmp_df[~v_mask], "MODIS_SP", filter_bbox=filter_aoi))
+                            v_list.append(parse_and_filter_aoi(tmp_df[v_mask], "VIIRS_SP", filter_bbox=filter_aoi))
+                        elif v_mask.any():
+                            v_list.append(parse_and_filter_aoi(tmp_df, "VIIRS_SP", filter_bbox=filter_aoi))
+                        else:
+                            m_list.append(parse_and_filter_aoi(tmp_df, "MODIS_SP", filter_bbox=filter_aoi))
+
+                if m_list and v_list:
+                    st.session_state["modis_sp"] = pd.concat(m_list, ignore_index=True)
+                    st.session_state["viirs_sp"] = pd.concat(v_list, ignore_index=True)
+                    st.session_state["sp_loaded"] = True
+                    st.rerun()
+                else:
+                    st.warning("Lütfen hem MODIS hem VIIRS verisini birlikte seçin.")
+                    st.stop()
+        else:
+            st.info("💡 MODIS ve VIIRS CSV dosyalarını yukarıdaki **tek kutuya** aynı anda sürükleyip bırakın.")
+            st.stop()
 elif data_mode == "NASA FIRMS Canlı API (NRT - NOAA-20 + NOAA-21)":
     st.warning("⚠️ **NRT Veri Niteliği Uyarısı:** Canlı API'den çekilen NRT verileri tahmini yörünge bilgisi içerir ve kesinleşmiş Standart Ürün (SP) değildir.")
     api_key = st.sidebar.text_input("NASA FIRMS MAP_KEY", type="password")
