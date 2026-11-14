@@ -455,6 +455,9 @@ with tab2:
     else:
         st.warning("Detectability eğrisi çizmek için yeterli VIIRS verisi bulunamadı.")
 
+# =========================================================
+# TAB 3: PLOTLY 5 & 6 TAM UYUMLU 2B / 3B DİNAMİK UYDU HARİTASI
+# =========================================================
 with tab3:
     c_map, c_proof = st.columns([1.5, 1])
 
@@ -561,10 +564,16 @@ with tab3:
                 st.plotly_chart(fig_3d, use_container_width=True)
 
             else:
+                # Plotly 6.0+ (Scattermap / Densitymap) ve Plotly 5.x (Scattermapbox / Densitymapbox) otomatik uyumluluk
+                use_new_map_api = hasattr(go, "Scattermap")
+                ScatterCls = go.Scattermap if use_new_map_api else go.Scattermapbox
+                DensityCls = go.Densitymap if use_new_map_api else go.Densitymapbox
+                layout_key = "map" if use_new_map_api else "mapbox"
+
                 fig_map = go.Figure()
 
                 if "Isı Yoğunluk" in view_mode:
-                    fig_map.add_trace(go.Densitymapbox(
+                    fig_map.add_trace(DensityCls(
                         lat=map_df["latitude"],
                         lon=map_df["longitude"],
                         z=map_df["FRP_MW"],
@@ -575,7 +584,7 @@ with tab3:
                     ))
                 else:
                     for katman_name, grp in map_df.groupby("Katman"):
-                        fig_map.add_trace(go.Scattermapbox(
+                        fig_map.add_trace(ScatterCls(
                             lat=grp["latitude"],
                             lon=grp["longitude"],
                             mode="markers",
@@ -589,14 +598,14 @@ with tab3:
                             hoverinfo="text"
                         ))
 
-                mapbox_cfg = dict(
+                map_cfg = dict(
                     center=dict(lat=c_lat, lon=c_lon),
                     zoom=7.4
                 )
 
                 if "Uydu Görüntüsü" in map_theme:
-                    mapbox_cfg["style"] = "white-bg"
-                    mapbox_cfg["layers"] = [
+                    map_cfg["style"] = "white-bg"
+                    map_cfg["layers"] = [
                         {
                             "below": "traces",
                             "sourcetype": "raster",
@@ -611,20 +620,20 @@ with tab3:
                         }
                     ]
                 elif "Arazi & Topografya" in map_theme:
-                    mapbox_cfg["style"] = "white-bg"
-                    mapbox_cfg["layers"] = [{
+                    map_cfg["style"] = "white-bg"
+                    map_cfg["layers"] = [{
                         "below": "traces",
                         "sourcetype": "raster",
                         "sourceattribution": "Esri World Topo",
                         "source": ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}"]
                     }]
                 elif "Karanlık" in map_theme:
-                    mapbox_cfg["style"] = "carto-darkmatter"
+                    map_cfg["style"] = "carto-darkmatter"
                 else:
-                    mapbox_cfg["style"] = "open-street-map"
+                    map_cfg["style"] = "open-street-map"
 
                 fig_map.update_layout(
-                    mapbox=mapbox_cfg,
+                    **{layout_key: map_cfg},
                     height=520,
                     margin={"r": 0, "t": 0, "l": 0, "b": 0},
                     paper_bgcolor="#070b14",
@@ -654,6 +663,7 @@ with tab3:
         </div>
         """, unsafe_allow_html=True)
         st.json({"Eşleştirme_Özeti": summary, "Kalibrasyon_Test_Sonucu": cal_metrics})
+
 with tab4:
     col_sites, col_bounds = st.columns([1.35, 1])
     with col_sites:
